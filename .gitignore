@@ -1,0 +1,29 @@
+# Unity project library directory.
+/Library/
+
+# Unity editor logs directory.
+/Logs/
+
+# Unity editor intermadiate directory.
+/Temp/
+
+# Unity project user settings.
+/UserSettings/
+
+# Compiled object files.
+/[Oo]bj/
+
+# Visual Studio intermediate files.
+.vs/
+
+# Visual Studio Code intermediate files.
+.vscode/
+
+# Rider intermediate files.
+.idea/
+
+# Generated project and solution files.
+/*.csproj
+/*.sln
+.DS_Store
+*.user
