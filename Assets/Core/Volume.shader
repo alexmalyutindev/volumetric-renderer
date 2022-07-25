@@ -5,11 +5,15 @@ Shader "Volume"
         _BaseColor ("Color", Color) = (1.0, 1.0, 1.0, 1.0)
         _BaseMap ("Texture", 2D) = "white" {}
         _Volume ("Volume", 3D) = "cube" {}
-        _Density ("Density", Range(0, 2)) = 0.5
+        _Density ("Density", Range(0, 5)) = 0.5
         _Cutoff("Alpha Clipping", Range(0.0, 1.0)) = 0.5
         [IntRange] _MaxStepsCount ("Max Ray Steps", Range(1, 50)) = 20
         [Toggle(_ALPHATEST_ON)] _AlphaClip ("Alpha Test", Float) = 0.0
+        [Space]
         [Toggle(_VOLUME_SHADOWS)] _Shadows ("Shadows", Float) = 0.0
+        _ShadowDensity ("ShadowDensity", Range(0, 5)) = 0.5
+        [IntRange] _ShadowSteps ("Shadow Steps", Range(1, 50)) = 10
+
 
     }
     SubShader
@@ -55,13 +59,16 @@ Shader "Volume"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 
             float _Density;
+            float _ShadowDensity;
+
             half _MaxStepsCount;
+            half _ShadowSteps;
             TEXTURE3D(_Volume);
             SAMPLER(sampler_Volume);
 
             TEXTURE2D(_VolumeDepthTexture);
             SAMPLER(sampler_VolumeDepthTexture);
-            
+
             TEXTURE2D(_BlueNoise);
             float4 _BlueNoise_TexelSize;
             SAMPLER(sampler_BlueNoise);
@@ -105,7 +112,7 @@ Shader "Volume"
             }
 
             #define SAMPLE_VOLUME(uvw) SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, uvw, 0).r
-            
+
             half4 frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
@@ -115,72 +122,84 @@ Shader "Volume"
 
                 float2 screenUV = input.grabUV.xy / input.grabUV.w;
 
-                float blueNoise = SAMPLE_TEXTURE2D(_BlueNoise, sampler_BlueNoise, screenUV * _BlueNoise_TexelSize.xy * _ScreenParams.xy).a;
-                
+                float blueNoise = SAMPLE_TEXTURE2D(_BlueNoise, sampler_BlueNoise,
+                                                   screenUV * _BlueNoise_TexelSize.xy * _ScreenParams.xy).a;
+
                 float volumeFront = SAMPLE_TEXTURE2D(_VolumeDepthTexture, sampler_VolumeDepthTexture, screenUV).r;
                 volumeFront = volumeFront == 0 ? _ProjectionParams.z : volumeFront;
                 volumeFront = LinearEyeDepth(volumeFront, _ZBufferParams) * frustumCorrection;
-                float volumeBack = LinearEyeDepth(input.vertex.z, _ZBufferParams) * frustumCorrection; // input.viewDirVS.z; //
+
+                float volumeBack = LinearEyeDepth(input.vertex.z, _ZBufferParams) * frustumCorrection;
+                // input.viewDirVS.z; //
 
                 float sceneDepth = SampleSceneDepth(screenUV);
                 sceneDepth = LinearEyeDepth(sceneDepth, _ZBufferParams) * frustumCorrection;
 
                 float depthOffset = max(0, volumeBack - volumeFront);
+
                 // Scene depth correction
                 volumeBack = min(sceneDepth, volumeBack);
-                // volumeFront = min(0, volumeFront);
-                // return half4(volumeFront.xxx, 1);
 
-                // return half4(normParam.xxx, 1);
                 float traceDist = max(0, volumeBack - volumeFront);
-                // return half4(traceDist.xxx, 1);
 
                 float stepSize = 0.001;
                 half steps = min(_MaxStepsCount, traceDist / stepSize);
                 stepSize = traceDist / steps;
-                // return half4(steps.xxx /  20, 1);
 
-                half light = 0.0h;
-                float3 lightDir = -_MainLightPosition.xyz * stepSize;
-                
-                half density = 0.0;
+
+                half currentDensity = 0.0;
+                float transmittance = 1;
+                float lightEnergy = 0;
+
                 float3 rayDir = -GetWorldSpaceViewDir(input.positionWS);
                 rayDir = normalize(rayDir); // / frustumCorrection;
                 float3 rayOrigin = input.positionWS - rayDir * (depthOffset);
-                rayDir *= stepSize  * (1 - blueNoise * 0.3);
+                rayDir *= stepSize * (1 - blueNoise * 0.3);
 
                 float stepDensity = _Density * stepSize;
-                for (half i = 0; i < steps; i++)
+
+                float shadowStepSize = 1 / _ShadowSteps;
+                float shadowDensity = _ShadowDensity * shadowStepSize;
+                float3 lightDir = _MainLightPosition.xyz * shadowStepSize * 0.5;
+                
+                for (int i = 0; i < steps; i++)
                 {
                     // SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, rayOrigin, 0).r * _Density * stepSize;
-                    density += SAMPLE_VOLUME(rayOrigin) * stepDensity;
+                    float sample = SAMPLE_VOLUME(rayOrigin);
+
+                    currentDensity = saturate(sample * stepDensity);
 
                     #ifdef _VOLUME_SHADOWS
-                    light = 0.0h;
-                    float3 lightRay = rayOrigin;
-                    
-                    half shadowDensity = 0.0;
-                    for (half j = 0; j < 10; j++)
+                    //Sample Light Absorption and Scattering
+                    if(currentDensity > 0.001)
                     {
-                        lightRay += lightDir;
-                        shadowDensity += SAMPLE_VOLUME(rayOrigin) * stepDensity;
+                        float3 lightRay = rayOrigin;
+                        float shadowDist = 0;
+                    
+                        for (int s = 0; s < _ShadowSteps; s++)
+                        {
+                            lightRay += lightDir;
+                            float ligthSample = SAMPLE_VOLUME(lightRay);
+                            shadowDist += ligthSample;
+                        }
 
-                        // if (shadowDensity < 0.01)
-                        //     break;
+                        float shadowTerm = exp(-shadowDist * shadowDensity);
+                        float absorbedLight = shadowTerm * currentDensity;
+                        lightEnergy += absorbedLight * transmittance;
+                        
+                        if(transmittance < 0.01)
+                            break;
                     }
-                    light += exp(-shadowDensity * 2);
                     #else
-                    light = 1.0h;
+                    lightEnergy = 1;
                     #endif
-
-                    if (density > 1)
-                        break;
+                    transmittance *= 1 - currentDensity;
 
                     rayOrigin += rayDir;
                 }
 
-                light = saturate(light);
-                return half4(_BaseColor.rgb * light * _MainLightColor.rgb, saturate(density));
+                half3 color = lerp(_BaseColor, _MainLightColor.rgb, lightEnergy);
+                return half4(color, 1 - transmittance);
             }
             ENDHLSL
         }
