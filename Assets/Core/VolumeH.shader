@@ -1,4 +1,4 @@
-Shader "Volume"
+Shader "VolumeH"
 {
     Properties
     {
@@ -7,7 +7,7 @@ Shader "Volume"
         _Cutoff("Alpha Clipping", Range(0.0, 1.0)) = 0.5
 
         _Volume ("Volume", 3D) = "cube" {}
-        _Density ("Density", Range(0, 10)) = 0.5
+        _Density ("Density", Range(0, 5)) = 0.5
         [IntRange] _MaxStepsCount ("Max Ray Steps", Range(1, 50)) = 20
         [Toggle(_ALPHATEST_ON)] _AlphaClip ("Alpha Test", Float) = 0.0
         [Space]
@@ -83,11 +83,10 @@ Shader "Volume"
 
             struct Varyings
             {
-                float3 viewDirWS : TEXCOORD0;
+                float3 viewDirVS : TEXCOORD0;
                 float fogCoord : TEXCOORD1;
                 float4 grabUV : TEXCOORD2;
                 float3 positionWS : TEXCOORD3;
-                float3 positionVS : TEXCOORD4;
                 float4 vertex : SV_POSITION;
 
                 UNITY_VERTEX_INPUT_INSTANCE_ID
@@ -105,9 +104,8 @@ Shader "Volume"
                 VertexPositionInputs vertexInput = GetVertexPositionInputs(input.positionOS.xyz);
                 output.vertex = vertexInput.positionCS;
 
-                output.positionVS = vertexInput.positionVS;
-                output.positionWS = vertexInput.positionWS;
-                output.viewDirWS = GetWorldSpaceViewDir(vertexInput.positionWS); // vertexInput.positionVS;
+                output.positionWS = input.positionOS.xyz + 0.5; // vertexInput.positionWS;
+                output.viewDirVS = vertexInput.positionVS;
                 output.fogCoord = ComputeFogFactor(vertexInput.positionCS.z);
                 output.grabUV = ComputeScreenPos(vertexInput.positionCS);
 
@@ -116,18 +114,20 @@ Shader "Volume"
 
             #if 0
             #define SAMPLE_VOLUME(uvw) SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, uvw, 0).r
-            #else
+            #elif 0
             #define SAMPLE_VOLUME(uvw) SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, uvw + float3(0.5, 0.5, 0.5), 0).r
+            #else
+            #define SAMPLE_VOLUME(uvw) saturate((SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvw.xz + 0.5).r - abs(uvw.y * 2)) * 10)
             #endif
 
-            #define SHADER_STAGE_RAY_TRACING
+            // #define SHADER_STAGE_RAY_TRACING
 
             half4 frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                float frustumCorrection = 1 / -normalize(input.positionVS).z;
+                float frustumCorrection = 1 / -normalize(input.viewDirVS).z;
 
                 float2 screenUV = input.grabUV.xy / input.grabUV.w;
 
@@ -137,41 +137,46 @@ Shader "Volume"
                 float volumeFront = SAMPLE_TEXTURE2D(_VolumeDepthTexture, sampler_VolumeDepthTexture, screenUV).r;
                 volumeFront = volumeFront == 0 ? _ProjectionParams.z : volumeFront;
                 volumeFront = LinearEyeDepth(volumeFront, _ZBufferParams) * frustumCorrection;
-                // volumeFront *= frustumCorrection;
 
                 float volumeBack = LinearEyeDepth(input.vertex.z, _ZBufferParams) * frustumCorrection;
+                // input.viewDirVS.z; //
 
                 float sceneDepth = SampleSceneDepth(screenUV);
                 sceneDepth = LinearEyeDepth(sceneDepth, _ZBufferParams) * frustumCorrection;
+
+                float depthOffset = max(0, volumeBack - volumeFront);
+
                 // Scene depth correction
                 volumeBack = min(sceneDepth, volumeBack);
 
                 float traceDist = max(0, volumeBack - volumeFront);
 
                 float stepSize = 0.001;
-                half steps = min(_MaxStepsCount, 1 / stepSize);
+                half steps = min(_MaxStepsCount, traceDist / stepSize);
                 stepSize = traceDist / steps;
+
 
                 half currentDensity = 0.0;
                 float transmittance = 1;
                 float lightEnergy = 0;
 
-                float3 rayDir = GetWorldSpaceViewDir(input.positionWS) / input.positionVS.z; // input.viewDirWS / input.positionVS.z; // -GetWorldSpaceNormalizeViewDir(input.positionWS);
-                float3 rayOrigin = _WorldSpaceCameraPos.xyz + rayDir * volumeFront; // WS
-                // return half4(rayOrigin, 1);
-                rayOrigin = TransformWorldToObject(rayOrigin); // OS
+                float3 rayDir = -GetWorldSpaceNormalizeViewDir(input.positionWS);
+                float3 rayOrigin = _WorldSpaceCameraPos.xyz + rayDir * volumeFront;
+                // input.positionWS - rayDir * (depthOffset);
+                // return half4(rayOrigin.xyz, 1);
+                rayOrigin = TransformWorldToObject(rayOrigin);
 
                 rayDir = TransformWorldToObjectDir(rayDir);
-                // rayDir = normalize(rayDir);
-                rayDir *= stepSize * (1 - blueNoise * 0.2);
+                rayDir *= stepSize * (1 - blueNoise * 0.1);
 
                 float stepDensity = _Density * stepSize;
 
                 float shadowStepSize = 1 / _ShadowSteps;
                 float shadowDensity = _ShadowDensity * shadowStepSize;
-                float3 lightDir = TransformWorldToObject(_MainLightPosition.xyz) * shadowStepSize;
+                float3 lightDir = _MainLightPosition.xyz * shadowStepSize * (1 - blueNoise * 0.2);
 
-                for (int i = 0; i < steps; i++)
+                UNITY_UNROLL
+                for (int i = 0; i < steps && i < 25; i++)
                 {
                     float sample = SAMPLE_VOLUME(rayOrigin);
 
@@ -183,7 +188,8 @@ Shader "Volume"
                     {
                         float3 lightRay = rayOrigin;
                         float shadowDist = 0;
-                    
+
+                        UNITY_LOOP
                         for (int s = 0; s < _ShadowSteps; s++)
                         {
                             lightRay += lightDir;

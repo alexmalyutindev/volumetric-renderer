@@ -4,7 +4,7 @@
 ![Screenshot](Screenshots/0.png)
 ___
 ###TODO:
-- [ ] Fix ray transformation.
+- [x] Fix ray transformation.
 - [ ] Add lower resolution buffer for ray marching
 - [ ] Fix volumes intersection
 - [ ] Fix depth intersection
