@@ -2,16 +2,18 @@
 %TAG !u! tag:unity3d.com,2011:
 --- !u!21 &2100000
 Material:
-  serializedVersion: 6
+  serializedVersion: 8
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: Volume
   m_Shader: {fileID: 4800000, guid: c56af9163e25a41d0bac4ed4b45fbf00, type: 3}
-  m_ShaderKeywords: _VOLUME_SHADOWS
+  m_ValidKeywords:
+  - _VOLUME_SHADOWS
+  m_InvalidKeywords: []
   m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
+  m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
   stringTagMap: {}
@@ -27,13 +29,14 @@ Material:
         m_Texture: {fileID: 11700000, guid: e7b699ab4e0744081a4cb16a6f425635, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    m_Ints: []
     m_Floats:
     - _AlphaClip: 0
     - _Cutoff: 0.37
     - _Density: 2.06
     - _MaxStepsCount: 10
     - _ShadowDensity: 5
-    - _ShadowSteps: 5
+    - _ShadowSteps: 6
     - _Shadows: 1
     m_Colors:
     - _BaseColor: {r: 0.48718402, g: 0.59847933, b: 0.6415094, a: 1}
