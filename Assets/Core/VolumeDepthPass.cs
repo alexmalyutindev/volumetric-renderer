@@ -54,6 +54,12 @@ public class VolumeDepthPass : ScriptableRenderPass
         ConfigureTarget(new RenderTargetIdentifier(depthAttachmentHandle.Identifier(), 0, CubemapFace.Unknown, -1));
         ConfigureClear(ClearFlag.All, Color.black);
     }
+    // public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
+    // {
+    //     cmd.GetTemporaryRT(depthAttachmentHandle.id, descriptor, FilterMode.Bilinear);
+    //     ConfigureTarget(new RenderTargetIdentifier(depthAttachmentHandle.Identifier(), 0, CubemapFace.Unknown, -1));
+    //     ConfigureClear(ClearFlag.All, Color.black);
+    // }
 
     // public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
     // {
@@ -77,8 +83,8 @@ public class VolumeDepthPass : ScriptableRenderPass
             cmd.SetGlobalTexture("_BlueNoise", bluNoise);
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
-                
-            var sortFlags = renderingData.cameraData.defaultOpaqueSortFlags;
+
+            var sortFlags = SortingCriteria.CommonTransparent; // renderingData.cameraData.defaultOpaqueSortFlags;
             var drawSettings = CreateDrawingSettings(m_ShaderTagId, ref renderingData, sortFlags);
             drawSettings.perObjectData = PerObjectData.None;
 

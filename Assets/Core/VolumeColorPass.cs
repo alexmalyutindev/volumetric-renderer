@@ -45,13 +45,13 @@ public class VolumeColorPass : ScriptableRenderPass
         descriptor = baseDescriptor;
     }
 
-    // public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
-    // {
-    //     cmd.GetTemporaryRT(colorAttachmentHandle.id, descriptor, FilterMode.Bilinear);
-    //     _renderTargetIdentifier = new RenderTargetIdentifier(colorAttachmentHandle.Identifier(), 0, CubemapFace.Unknown, -1);
-    //     ConfigureTarget(_renderTargetIdentifier);
-    //     ConfigureClear(ClearFlag.All, Color.black);
-    // }
+    public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
+    {
+        cmd.GetTemporaryRT(colorAttachmentHandle.id, descriptor, FilterMode.Bilinear);
+        _renderTargetIdentifier = new RenderTargetIdentifier(colorAttachmentHandle.Identifier(), 0, CubemapFace.Unknown, -1);
+        ConfigureTarget(_renderTargetIdentifier);
+        ConfigureClear(ClearFlag.All, Color.clear);
+    }
 
     // public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
     // {
@@ -72,14 +72,15 @@ public class VolumeColorPass : ScriptableRenderPass
             cmd.Clear();
 
             var sortFlags = renderingData.cameraData.defaultOpaqueSortFlags;
+            sortFlags = SortingCriteria.BackToFront;
             var drawSettings = CreateDrawingSettings(m_ShaderTagId, ref renderingData, sortFlags);
             drawSettings.perObjectData = PerObjectData.None;
 
             context.DrawRenderers(renderingData.cullResults, ref drawSettings, ref m_FilteringSettings);
 
-            // cmd.Blit(colorAttachmentHandle.Identifier(), BuiltinRenderTextureType.CameraTarget, _blitMat);
-            // context.ExecuteCommandBuffer(cmd);
-            // cmd.Clear();
+            cmd.Blit(colorAttachmentHandle.Identifier(), renderingData.cameraData.renderer.cameraColorTarget, _blitMat);
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
         }
 
         context.ExecuteCommandBuffer(cmd);

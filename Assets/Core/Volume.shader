@@ -14,8 +14,6 @@ Shader "Volume"
         [Toggle(_VOLUME_SHADOWS)] _Shadows ("Shadows", Float) = 0.0
         _ShadowDensity ("ShadowDensity", Range(0, 5)) = 0.5
         [IntRange] _ShadowSteps ("Shadow Steps", Range(1, 50)) = 10
-
-
     }
     SubShader
     {

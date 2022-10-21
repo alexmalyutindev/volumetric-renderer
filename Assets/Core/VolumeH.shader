@@ -5,17 +5,16 @@ Shader "VolumeH"
         _BaseColor ("Color", Color) = (1.0, 1.0, 1.0, 1.0)
         _BaseMap ("Texture", 2D) = "white" {}
         _Cutoff("Alpha Clipping", Range(0.0, 1.0)) = 0.5
+        [Toggle] _Jitter ("Jitter", Float) = 1.0
 
-        _Volume ("Volume", 3D) = "cube" {}
-        _Density ("Density", Range(0, 5)) = 0.5
-        [IntRange] _MaxStepsCount ("Max Ray Steps", Range(1, 50)) = 20
+        _Density ("Density", Range(0, 10)) = 0.5
+        [IntRange] _MaxStepsCount ("Max Ray Steps", Range(5, 50)) = 20
         [Toggle(_ALPHATEST_ON)] _AlphaClip ("Alpha Test", Float) = 0.0
         [Space]
         [Toggle(_VOLUME_SHADOWS)] _Shadows ("Shadows", Float) = 0.0
-        _ShadowDensity ("ShadowDensity", Range(0, 5)) = 0.5
+        _ShadowDensity ("ShadowDensity", Range(0, 10)) = 0.5
         [IntRange] _ShadowSteps ("Shadow Steps", Range(1, 50)) = 10
-
-
+        _ShadowThreshold ("ShadowThreshold", Range(0, 1)) = 0.01
     }
     SubShader
     {
@@ -34,7 +33,9 @@ Shader "VolumeH"
         {
             Name "Volume"
 
-            Blend SrcAlpha OneMinusSrcAlpha
+//            Blend SrcAlpha OneMinusSrcAlpha
+            Blend SrcAlpha One
+            BlendOp Max
             ZTest Always
             ZWrite Off
             Cull Front
@@ -53,17 +54,21 @@ Shader "VolumeH"
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
+            #pragma instancing_options procedural:ParticleInstancingSetup
 
             #pragma shader_feature_local_fragment _VOLUME_SHADOWS
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/UnlitInput.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ParticlesInstancing.hlsl"
 
+            float _Jitter;
             float _Density;
             float _ShadowDensity;
+            float _ShadowThreshold;
 
-            half _MaxStepsCount;
-            half _ShadowSteps;
+            int _MaxStepsCount;
+            int _ShadowSteps;
             TEXTURE3D(_Volume);
             SAMPLER(sampler_Volume);
 
@@ -77,16 +82,17 @@ Shader "VolumeH"
             struct Attributes
             {
                 float4 positionOS : POSITION;
-                float2 uv : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
             {
-                float3 viewDirVS : TEXCOORD0;
-                float fogCoord : TEXCOORD1;
-                float4 grabUV : TEXCOORD2;
-                float3 positionWS : TEXCOORD3;
+                float3 viewDirWS : TEXCOORD0;
+                float4 grabUV : TEXCOORD1;
+                float3 positionWS : TEXCOORD2;
+                float3 positionVS : TEXCOORD3;
+                float fogCoord : TEXCOORD4;
+                float3 positionOS : TEXCOORD5;
                 float4 vertex : SV_POSITION;
 
                 UNITY_VERTEX_INPUT_INSTANCE_ID
@@ -104,118 +110,124 @@ Shader "VolumeH"
                 VertexPositionInputs vertexInput = GetVertexPositionInputs(input.positionOS.xyz);
                 output.vertex = vertexInput.positionCS;
 
-                output.positionWS = input.positionOS.xyz + 0.5; // vertexInput.positionWS;
-                output.viewDirVS = vertexInput.positionVS;
+                output.positionOS = input.positionOS;
+                output.positionVS = vertexInput.positionVS;
+                output.positionWS = vertexInput.positionWS;
+                output.viewDirWS = GetWorldSpaceViewDir(vertexInput.positionWS);
                 output.fogCoord = ComputeFogFactor(vertexInput.positionCS.z);
                 output.grabUV = ComputeScreenPos(vertexInput.positionCS);
 
                 return output;
             }
 
-            #if 0
-            #define SAMPLE_VOLUME(uvw) SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, uvw, 0).r
-            #elif 0
-            #define SAMPLE_VOLUME(uvw) SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, uvw + float3(0.5, 0.5, 0.5), 0).r
-            #else
-            #define SAMPLE_VOLUME(uvw) saturate((SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvw.xz + 0.5).r - abs(uvw.y * 2)) * 10)
-            #endif
+            #define SAMPLE_VOLUME(uvw) \
+                saturate((SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, uvw.xy + 0.5, 0).r - abs(uvw.z * 2)) * 10)
+                // (SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvw.xy + 0.5).r > abs(uvw.z * 2))
 
-            // #define SHADER_STAGE_RAY_TRACING
+            #define SAMPLE_NOISE(screenUV) \
+                (SAMPLE_TEXTURE2D( \
+                    _BlueNoise, \
+                    sampler_BlueNoise, \
+                    screenUV * _BlueNoise_TexelSize.xy * _ScreenParams.xy * 0.5 \
+                ).a) \
+            
+            #define SHADER_STAGE_RAY_TRACING
 
             half4 frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                float frustumCorrection = 1 / -normalize(input.viewDirVS).z;
+                float frustumCorrection = 1 / -normalize(input.positionVS).z;
 
                 float2 screenUV = input.grabUV.xy / input.grabUV.w;
 
-                float blueNoise = SAMPLE_TEXTURE2D(_BlueNoise, sampler_BlueNoise,
-                                                   screenUV * _BlueNoise_TexelSize.xy * _ScreenParams.xy).a;
-
                 float volumeFront = SAMPLE_TEXTURE2D(_VolumeDepthTexture, sampler_VolumeDepthTexture, screenUV).r;
                 volumeFront = volumeFront == 0 ? _ProjectionParams.z : volumeFront;
-                volumeFront = LinearEyeDepth(volumeFront, _ZBufferParams) * frustumCorrection;
+                volumeFront = LinearEyeDepth(volumeFront, _ZBufferParams);
 
-                float volumeBack = LinearEyeDepth(input.vertex.z, _ZBufferParams) * frustumCorrection;
-                // input.viewDirVS.z; //
+                float volumeBack = LinearEyeDepth(input.vertex.z, _ZBufferParams);
 
                 float sceneDepth = SampleSceneDepth(screenUV);
-                sceneDepth = LinearEyeDepth(sceneDepth, _ZBufferParams) * frustumCorrection;
-
-                float depthOffset = max(0, volumeBack - volumeFront);
-
+                sceneDepth = LinearEyeDepth(sceneDepth, _ZBufferParams);
                 // Scene depth correction
                 volumeBack = min(sceneDepth, volumeBack);
 
-                float traceDist = max(0, volumeBack - volumeFront);
+                float traceDist = max(0, volumeBack - volumeFront) * frustumCorrection;
+                // traceDist = length(TransformWorldToObjectDir(traceDist * normalize(input.viewDirWS)));
 
-                float stepSize = 0.001;
-                half steps = min(_MaxStepsCount, traceDist / stepSize);
-                stepSize = traceDist / steps;
+                int steps = _MaxStepsCount * traceDist; // min(_MaxStepsCount, 1 / stepSize);
+                float stepSize = traceDist / steps;
 
-
+                // Raymarching
                 half currentDensity = 0.0;
-                float transmittance = 1;
-                float lightEnergy = 0;
+                float transmittance = 1.0;
 
-                float3 rayDir = -GetWorldSpaceNormalizeViewDir(input.positionWS);
-                float3 rayOrigin = _WorldSpaceCameraPos.xyz + rayDir * volumeFront;
-                // input.positionWS - rayDir * (depthOffset);
-                // return half4(rayOrigin.xyz, 1);
+                float3 rayDir = input.viewDirWS / input.positionVS.z;
+                float3 rayOrigin = _WorldSpaceCameraPos + rayDir * volumeFront; // / frustumCorrection;
                 rayOrigin = TransformWorldToObject(rayOrigin);
 
-                rayDir = TransformWorldToObjectDir(rayDir);
-                rayDir *= stepSize * (1 - blueNoise * 0.1);
+                float blueNoise = SAMPLE_NOISE(screenUV) * 2 - 1;
+
+                rayDir = TransformWorldToObjectDir(rayDir) * stepSize;
+                rayOrigin += rayDir * blueNoise * _Jitter;
+
+                float shadowStepSize = 0.5 / _ShadowSteps;
+                float shadowDensity = _ShadowDensity * shadowStepSize;
+                float shadowthresh = -log(_ShadowThreshold) / shadowDensity;
+                
+                float3 lightDir = TransformWorldToObjectDir(_MainLightPosition.xyz);
+                lightDir *= shadowStepSize;
 
                 float stepDensity = _Density * stepSize;
+                float lightEnergy = 0.0;
 
-                float shadowStepSize = 1 / _ShadowSteps;
-                float shadowDensity = _ShadowDensity * shadowStepSize;
-                float3 lightDir = _MainLightPosition.xyz * shadowStepSize * (1 - blueNoise * 0.2);
-
-                UNITY_UNROLL
-                for (int i = 0; i < steps && i < 25; i++)
+                UNITY_LOOP
+                for (int i = 0; i < steps; i++)
                 {
                     float sample = SAMPLE_VOLUME(rayOrigin);
 
-                    currentDensity = saturate(sample * stepDensity);
-
-                    #ifdef _VOLUME_SHADOWS
                     //Sample Light Absorption and Scattering
-                    if(currentDensity > 0.01)
+                    if (sample > 0.001)
                     {
-                        float3 lightRay = rayOrigin;
-                        float shadowDist = 0;
+                        blueNoise = SAMPLE_NOISE(rayOrigin.xy) - 0.5;
+                        float3 lightRay = rayOrigin + lightDir * blueNoise * _Jitter;
+                        half shadowDist = 0;
 
                         UNITY_LOOP
                         for (int s = 0; s < _ShadowSteps; s++)
                         {
                             lightRay += lightDir;
-                            float ligthSample = SAMPLE_VOLUME(lightRay);
-                            shadowDist += ligthSample;
+                            half lightSample = SAMPLE_VOLUME(lightRay);
+
+                            half3 shadowBoxTest = floor(abs(lightRay) + 0.5);
+                            half exitShadowBox = shadowBoxTest.x + shadowBoxTest.y + shadowBoxTest.z;
+
+                            
+                            shadowDist += lightSample;
+                            if (shadowDist > shadowthresh || exitShadowBox >= 1.0)
+                            {
+                                break;
+                            }
                         }
 
-                        float shadowTerm = exp(-shadowDist * shadowDensity);
-                        float absorbedLight = shadowTerm * currentDensity;
+                        currentDensity = saturate(sample * stepDensity);
+                        half shadowTerm = exp(-shadowDist * shadowDensity);
+                        half absorbedLight = shadowTerm * currentDensity;
                         lightEnergy += absorbedLight * transmittance;
-                        
-                        if(transmittance < 0.01)
-                            break;
+                        transmittance *= 1.0 - currentDensity;
                     }
-                    #else
-                    lightEnergy = 0;
-                    #endif
-                    transmittance *= 1 - currentDensity;
 
-                    // if (transmittance < 0.1)
-                    //     break;
+                    if (transmittance < 0.01)
+                    {
+                        transmittance = 0;
+                        break;
+                    }
 
                     rayOrigin += rayDir;
                 }
 
-                half3 color = lerp(_BaseColor, _MainLightColor.rgb, lightEnergy);
+                half3 color = lerp(_BaseColor.rgb, _MainLightColor.rgb, saturate(lightEnergy));
                 return half4(color, 1 - transmittance);
             }
             ENDHLSL
@@ -248,9 +260,12 @@ Shader "VolumeH"
             // GPU Instancing
             #pragma multi_compile_instancing
             #pragma multi_compile _ DOTS_INSTANCING_ON
+            #pragma instancing_options procedural:ParticleInstancingSetup
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/UnlitInput.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/Shaders/DepthOnlyPass.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ParticlesInstancing.hlsl"
+
             ENDHLSL
         }
     }
