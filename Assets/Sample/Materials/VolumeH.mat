@@ -36,10 +36,10 @@ Material:
     - _Cutoff: 0
     - _Density: 10
     - _Jitter: 1
-    - _MaxStepsCount: 10
-    - _ShadowDensity: 10
-    - _ShadowSteps: 10
-    - _ShadowThreshold: 0.1
+    - _MaxStepsCount: 20
+    - _ShadowDensity: 20
+    - _ShadowSteps: 24
+    - _ShadowThreshold: 0.067
     - _Shadows: 1
     m_Colors:
     - _BaseColor: {r: 0.17377181, g: 0.3832945, b: 0.5188679, a: 1}

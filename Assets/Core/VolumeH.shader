@@ -12,7 +12,7 @@ Shader "VolumeH"
         [Toggle(_ALPHATEST_ON)] _AlphaClip ("Alpha Test", Float) = 0.0
         [Space]
         [Toggle(_VOLUME_SHADOWS)] _Shadows ("Shadows", Float) = 0.0
-        _ShadowDensity ("ShadowDensity", Range(0, 10)) = 0.5
+        _ShadowDensity ("ShadowDensity", Range(0, 20)) = 0.5
         [IntRange] _ShadowSteps ("Shadow Steps", Range(1, 50)) = 10
         _ShadowThreshold ("ShadowThreshold", Range(0, 1)) = 0.01
     }
@@ -33,9 +33,9 @@ Shader "VolumeH"
         {
             Name "Volume"
 
-//            Blend SrcAlpha OneMinusSrcAlpha
-            Blend SrcAlpha One
-            BlendOp Max
+            Blend SrcAlpha OneMinusSrcAlpha
+//            Blend SrcAlpha One
+//            BlendOp Max
             ZTest Always
             ZWrite Off
             Cull Front
@@ -58,26 +58,31 @@ Shader "VolumeH"
 
             #pragma shader_feature_local_fragment _VOLUME_SHADOWS
 
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/UnlitInput.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ParticlesInstancing.hlsl"
 
+            CBUFFER_START(UnityPerMaterial)
+            float4 _BaseMap_ST;
+            half4 _BaseColor;
             float _Jitter;
             float _Density;
             float _ShadowDensity;
             float _ShadowThreshold;
-
             int _MaxStepsCount;
             int _ShadowSteps;
-            TEXTURE3D(_Volume);
-            SAMPLER(sampler_Volume);
+            CBUFFER_END
 
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
+            float4 _BaseMap_TexelSize;
+            float4 _BaseMap_MipInfo;
+            
             TEXTURE2D(_VolumeDepthTexture);
             SAMPLER(sampler_VolumeDepthTexture);
 
             TEXTURE2D(_BlueNoise);
-            float4 _BlueNoise_TexelSize;
             SAMPLER(sampler_BlueNoise);
+            float4 _BlueNoise_TexelSize;
 
             struct Attributes
             {
@@ -98,7 +103,7 @@ Shader "VolumeH"
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
-
+            
             Varyings vert(Attributes input)
             {
                 Varyings output = (Varyings)0;
@@ -121,7 +126,7 @@ Shader "VolumeH"
             }
 
             #define SAMPLE_VOLUME(uvw) \
-                saturate((SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, uvw.xy + 0.5, 0).r - abs(uvw.z * 2)) * 10)
+                saturate((SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, uvw.xy + 0.5, 0).r - abs(uvw.z * 2)) * 100)
                 // (SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvw.xy + 0.5).r > abs(uvw.z * 2))
 
             #define SAMPLE_NOISE(screenUV) \
@@ -164,12 +169,12 @@ Shader "VolumeH"
                 float transmittance = 1.0;
 
                 float3 rayDir = input.viewDirWS / input.positionVS.z;
-                float3 rayOrigin = _WorldSpaceCameraPos + rayDir * volumeFront; // / frustumCorrection;
+                float3 rayOrigin = _WorldSpaceCameraPos + rayDir * volumeFront * frustumCorrection;
                 rayOrigin = TransformWorldToObject(rayOrigin);
 
-                float blueNoise = SAMPLE_NOISE(screenUV) * 2 - 1;
+                float blueNoise = SAMPLE_NOISE(screenUV) - 0.5;
 
-                rayDir = TransformWorldToObjectDir(rayDir) * stepSize;
+                rayDir = TransformWorldToObjectDir(rayDir, false) * stepSize;
                 rayOrigin += rayDir * blueNoise * _Jitter;
 
                 float shadowStepSize = 0.5 / _ShadowSteps;
@@ -266,6 +271,17 @@ Shader "VolumeH"
             #include "Packages/com.unity.render-pipelines.universal/Shaders/DepthOnlyPass.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ParticlesInstancing.hlsl"
 
+            Varyings DepthOnlyVertex0(Attributes input)
+            {
+                Varyings output = (Varyings)0;
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+
+                output.uv = TRANSFORM_TEX(input.texcoord, _BaseMap);
+                output.positionCS = TransformObjectToHClip(input.position.xyz);
+                output.positionCS.z = output.positionCS.z < _ProjectionParams.y ? 0 : output.positionCS.z;
+                return output;
+            }
             ENDHLSL
         }
     }

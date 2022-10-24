@@ -7,40 +7,33 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: VolumeH_Particles
-  m_Shader: {fileID: 4800000, guid: a5daea2b560743edb94f4a6b4b3ff2cb, type: 3}
-  m_ValidKeywords:
-  - _VOLUME_SHADOWS
+  m_Name: Complete Sphere Impostor
+  m_Shader: {fileID: 4800000, guid: 30167adb699fe4870baa43b37f318616, type: 3}
+  m_ValidKeywords: []
   m_InvalidKeywords:
-  - _JITTER_ON
+  - _MAPPING_EQUIRECTANGULAR
+  - _MSAABEHAVIOUR_NONE
   m_LightmapFlags: 4
-  m_EnableInstancingVariants: 1
+  m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: 3100
+  m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
-    - _BaseMap:
-        m_Texture: {fileID: 2800000, guid: 83d73bd61c4b242e7bce2744cd3daa61, type: 3}
+    - _CubeTex:
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _Volume:
+    - _MainTex:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AlphaClip: 0
-    - _Cutoff: 0
-    - _Density: 5.9
-    - _Jitter: 1
-    - _MaxStepsCount: 20
-    - _ShadowDensity: 6.2
-    - _ShadowSteps: 10
-    - _ShadowThreshold: 0.1
-    - _Shadows: 1
+    - _MSAABehaviour: 0
+    - _Mapping: 0
     m_Colors:
-    - _BaseColor: {r: 0, g: 0.50008976, b: 0.6320754, a: 1}
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

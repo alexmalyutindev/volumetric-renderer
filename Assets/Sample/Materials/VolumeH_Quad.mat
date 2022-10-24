@@ -7,16 +7,16 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: VolumeH_Particles
-  m_Shader: {fileID: 4800000, guid: a5daea2b560743edb94f4a6b4b3ff2cb, type: 3}
+  m_Name: VolumeH_Quad
+  m_Shader: {fileID: 4800000, guid: 4d8a118fdb064d22bcbe2a068fed0819, type: 3}
   m_ValidKeywords:
   - _VOLUME_SHADOWS
   m_InvalidKeywords:
   - _JITTER_ON
   m_LightmapFlags: 4
-  m_EnableInstancingVariants: 1
+  m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: 3100
+  m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
   m_SavedProperties:
@@ -34,13 +34,13 @@ Material:
     m_Floats:
     - _AlphaClip: 0
     - _Cutoff: 0
-    - _Density: 5.9
+    - _Density: 10
     - _Jitter: 1
-    - _MaxStepsCount: 20
-    - _ShadowDensity: 6.2
-    - _ShadowSteps: 10
-    - _ShadowThreshold: 0.1
+    - _MaxStepsCount: 10
+    - _ShadowDensity: 20
+    - _ShadowSteps: 24
+    - _ShadowThreshold: 0.067
     - _Shadows: 1
     m_Colors:
-    - _BaseColor: {r: 0, g: 0.50008976, b: 0.6320754, a: 1}
+    - _BaseColor: {r: 0.17377181, g: 0.3832945, b: 0.5188679, a: 1}
   m_BuildTextureStacks: []
