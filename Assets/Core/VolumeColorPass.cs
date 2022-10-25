@@ -30,12 +30,12 @@ public class VolumeColorPass : ScriptableRenderPass
     /// </summary>
     public void Setup(
         RenderTextureDescriptor baseDescriptor,
-        RenderTargetHandle depthAttachmentHandle,
+        RenderTargetHandle colorTargetHandle,
         Material blitMat
     )
     {
         _blitMat = blitMat;
-        colorAttachmentHandle = depthAttachmentHandle;
+        colorAttachmentHandle = colorTargetHandle;
         baseDescriptor.colorFormat = RenderTextureFormat.ARGB32;
         baseDescriptor.depthBufferBits = kDepthBufferBits;
         baseDescriptor.width >>= 1;
@@ -72,7 +72,7 @@ public class VolumeColorPass : ScriptableRenderPass
             cmd.Clear();
 
             var sortFlags = renderingData.cameraData.defaultOpaqueSortFlags;
-            sortFlags = SortingCriteria.BackToFront | SortingCriteria.RenderQueue;
+            sortFlags = SortingCriteria.QuantizedFrontToBack | SortingCriteria.RenderQueue;
             var drawSettings = CreateDrawingSettings(m_ShaderTagId, ref renderingData, sortFlags);
             drawSettings.perObjectData = PerObjectData.None;
 

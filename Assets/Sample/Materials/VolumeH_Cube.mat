@@ -7,27 +7,28 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: VolumeH
-  m_Shader: {fileID: 4800000, guid: a5daea2b560743edb94f4a6b4b3ff2cb, type: 3}
-  m_ValidKeywords:
-  - _VOLUME_SHADOWS
+  m_Name: VolumeH_Cube
+  m_Shader: {fileID: 4800000, guid: 49dd833e84ef455e8c03aa416f8e925f, type: 3}
+  m_ValidKeywords: []
   m_InvalidKeywords:
   - _JITTER_ON
+  - _VOLUME
+  - _VOLUME_SHADOWS
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: 3000
+  m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
     - _BaseMap:
-        m_Texture: {fileID: 2800000, guid: be4112e9ac5d84711952e4e330ce69af, type: 3}
+        m_Texture: {fileID: 2800000, guid: ca30fd52fa04045719ae2cda9ac03ffe, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _Volume:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 11700000, guid: e7b699ab4e0744081a4cb16a6f425635, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
@@ -35,12 +36,14 @@ Material:
     - _AlphaClip: 0
     - _Cutoff: 0
     - _Density: 10
+    - _Hardness: 200
     - _Jitter: 1
     - _MaxStepsCount: 20
-    - _ShadowDensity: 20
-    - _ShadowSteps: 24
-    - _ShadowThreshold: 0.393
+    - _ShadowDensity: 10.1
+    - _ShadowSteps: 10
+    - _ShadowThreshold: 0.1
     - _Shadows: 1
+    - _VolumeKw: 1
     m_Colors:
     - _BaseColor: {r: 0.17377181, g: 0.3832945, b: 0.5188679, a: 1}
   m_BuildTextureStacks: []

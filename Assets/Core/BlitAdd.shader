@@ -28,7 +28,9 @@ Shader "Hidden/LowKick/BlitAdd"
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/Utils/Fullscreen.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
-
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Filtering.hlsl"
+            #include "./BlueNoise.hlsl"
+            
             TEXTURE2D_X(_MainTex);
             SAMPLER(sampler_MainTex);
             float4 _MainTex_TexelSize;
@@ -85,10 +87,10 @@ Shader "Hidden/LowKick/BlitAdd"
                 float4 d = texelSize.xyxy * float4(-1.0, -1.0, 1.0, 1.0) * (sampleScale * 0.5);
 
                 half4 s;
-                s = (SAMPLE_TEXTURE2D(tex, samplerTex, UnityStereoTransformScreenSpaceTex(uv + d.xy)));
-                s += (SAMPLE_TEXTURE2D(tex, samplerTex, UnityStereoTransformScreenSpaceTex(uv + d.zy)));
-                s += (SAMPLE_TEXTURE2D(tex, samplerTex, UnityStereoTransformScreenSpaceTex(uv + d.xw)));
-                s += (SAMPLE_TEXTURE2D(tex, samplerTex, UnityStereoTransformScreenSpaceTex(uv + d.zw)));
+                s = (SAMPLE_TEXTURE2D(tex, samplerTex, (uv + d.xy)));
+                s += (SAMPLE_TEXTURE2D(tex, samplerTex, (uv + d.zy)));
+                s += (SAMPLE_TEXTURE2D(tex, samplerTex, (uv + d.xw)));
+                s += (SAMPLE_TEXTURE2D(tex, samplerTex, (uv + d.zw)));
 
                 return s * (1.0 / 4.0);
             }
@@ -97,13 +99,15 @@ Shader "Hidden/LowKick/BlitAdd"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
+                float noise = SAMPLE_BLUENOISE(input.uv, 1) - 0.5;
+                noise *= _MainTex_TexelSize.x * 5;
                 half4 col = UpsampleBox(_MainTex, sampler_MainTex, input.uv, _MainTex_TexelSize.xy, 2);
-
+                
                 #ifdef _LINEAR_TO_SRGB_CONVERSION
                 col = LinearToSRGB(col);
                 #endif
 
-                return col;
+                return half4(col.rgb, col.a);
             }
             ENDHLSL
         }
