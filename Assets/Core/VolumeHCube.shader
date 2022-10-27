@@ -4,6 +4,7 @@ Shader "VolumeH_Cube"
     {
         _Cutoff("Alpha Clipping", Range(0.0, 1.0)) = 0.5
         _BaseColor ("Color", Color) = (1.0, 1.0, 1.0, 1.0)
+        _ShadowColor ("Shadow Color", Color) = (1.0, 1.0, 1.0, 1.0)
         _BaseMap ("Texture", 2D) = "white" {}
         _Volume ("Volume", 3D) = "white" {}
         [Toggle(_VOLUME)] _VolumeKw ("Use Volume", Float) = 0.0
@@ -39,8 +40,12 @@ Shader "VolumeH_Cube"
 //            Blend SrcAlpha One, SrcAlpha DstAlpha
 //            BlendOp Add, Add
 //            ZTest Off
+            
 //            Blend SrcAlpha OneMinusSrcAlpha, SrcAlpha DstAlpha
 //            BlendOp Add, Max
+            
+//            Blend One One
+//            BlendOp Max
             Blend SrcAlpha OneMinusSrcAlpha
             Cull Front
 
@@ -68,7 +73,9 @@ Shader "VolumeH_Cube"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
+            float4 _Volume_ST;
             half4 _BaseColor;
+            half4 _ShadowColor;
             float _Cutoff;
             float _Hardness;
             float _Density;
@@ -127,7 +134,7 @@ Shader "VolumeH_Cube"
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
-                float3 positionWS = TransformObjectToWorld(input.positionOS);
+                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(positionWS);
 
                 output.viewDirWS = GetWorldSpaceViewDir(positionWS);
@@ -141,7 +148,11 @@ Shader "VolumeH_Cube"
 
 
             #ifdef _VOLUME
-            #define SAMPLE_VOLUME(uvw) (SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, (uvw).xyz + 0.5, 0).r)
+            #define SAMPLE_VOLUME(uvw) \
+                smoothstep(0.5, 0.6, SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, _Volume_ST.xyx * (uvw) + 0.5, 0).r) * 0.7 \
+                + smoothstep(0.5, 0.6, SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, (_Volume_ST.xyx * (uvw) + 0.5) * 2, 0).g) * 0.3 \
+                // + smoothstep(0.5, 0.6, SAMPLE_TEXTURE3D_LOD(_Volume, sampler_Volume, (_Volume_ST.xyx * (uvw) + 0.5) * 4, 0).b) * 0.1425 \
+                
             #else
             #define SAMPLE_VOLUME(uvw) \
                 saturate((SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, (uvw).xy + 0.5, 0).r - abs((uvw).z * 2)) * _Hardness)
@@ -209,35 +220,48 @@ Shader "VolumeH_Cube"
 
                 float3 rayOrigin = input.rayOrigin + rayDir * (boxIntersection.x + blueNoise * stepSize * _Jitter);
                 rayDir *= stepSize;
+                
+                // get the max object scale
+                float3 scale = float3(
+                    length(unity_ObjectToWorld._m00_m10_m20),
+                    length(unity_ObjectToWorld._m01_m11_m21),
+                    length(unity_ObjectToWorld._m02_m12_m22)
+                );
+                float maxScale = max(abs(scale.x), max(abs(scale.y), abs(scale.z)));
+                scale = sqrt(maxScale);
+                
+                float stepDensity = _Density * stepSize * scale;
 
                 float shadowStepSize = 0.5 / _ShadowSteps;
-                float shadowDensity = _ShadowDensity * shadowStepSize;
+                float shadowDensity = _ShadowDensity * shadowStepSize * scale;
                 float shadowThresh = -log(_ShadowThreshold) / shadowDensity;
 
                 float3 lightDir = TransformWorldToObjectDir(_MainLightPosition.xyz);
                 lightDir *= shadowStepSize;
 
-                float stepDensity = _Density * stepSize;
                 float lightEnergy = 0.0;
                 float sampleDist = boxIntersection.x;
 
+                float3 offset = float3(_Time.x, 0, 0);
+
                 UNITY_LOOP
-                for (int i = 0; i < steps; i++)
+                int currentIndex = 0;
+                while (currentIndex < steps && sampleDist < boxIntersection.y)
                 {
-                    float sample = SAMPLE_VOLUME(rayOrigin);
+                    float sample = SAMPLE_VOLUME(rayOrigin + offset);
 
                     //Sample Light Absorption and Scattering
                     if (sample > 0.001)
                     {
                         blueNoise = SAMPLE_NOISE(rayOrigin.xy) - 0.5;
-                        float3 lightRay = rayOrigin + lightDir * blueNoise * _Jitter;
+                        float3 lightRay = rayOrigin; // + lightDir * blueNoise * _Jitter;
                         half shadowDist = 0;
 
                         UNITY_LOOP
                         for (int s = 0; s < _ShadowSteps; s++)
                         {
                             lightRay += lightDir;
-                            half lightSample = SAMPLE_VOLUME(lightRay);
+                            half lightSample = SAMPLE_VOLUME(lightRay + offset) * (0.5 - lightRay.y);
 
                             half3 shadowBoxTest = floor(abs(lightRay) + 0.5);
                             half exitShadowBox = shadowBoxTest.x + shadowBoxTest.y + shadowBoxTest.z;
@@ -256,10 +280,11 @@ Shader "VolumeH_Cube"
                         lightEnergy += absorbedLight * transmittance;
                         transmittance *= 1.0 - currentDensity;
                     }
+                    // TODO: Step optimizations (increase step if density is low)
 
                     if (transmittance < 0.2 && depth < 0)
                     {
-                        float4 positionCS = TransformObjectToHClip(rayOrigin); //  + rayDir * blueNoise);
+                        float4 positionCS = TransformObjectToHClip(rayOrigin + rayDir * blueNoise);
                         depth = positionCS.z / positionCS.w;
                     }
 
@@ -268,6 +293,8 @@ Shader "VolumeH_Cube"
 
                     rayOrigin += rayDir;
                     sampleDist += stepSize;
+
+                    currentIndex++;
                 }
 
                 float alpha = 1 - transmittance;
@@ -278,7 +305,7 @@ Shader "VolumeH_Cube"
                 // if (alpha < _Cutoff)
                 //     depth = 0;
 
-                half3 color = lerp(_BaseColor.rgb, _MainLightColor.rgb, saturate(lightEnergy));
+                half3 color = lerp(_ShadowColor.rgb, _BaseColor.rgb * _MainLightColor.rgb, saturate(lightEnergy));
                 return half4(color, alpha);
             }
             ENDHLSL

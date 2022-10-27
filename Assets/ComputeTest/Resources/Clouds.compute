@@ -1,0 +1,93 @@
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+// Render clouds
+#pragma kernel RenderClouds
+
+// Input textures
+TEXTURE2D_X(_DepthTexture);
+TEXTURE2D_X(_VolumetricCloudsSourceDepth);
+TEXTURE2D_X(_MaxZMaskTexture);
+
+TEXTURE3D(_VolumeTexture);
+SAMPLER(sampler_VolumeTeture);
+
+// History buffers
+TEXTURE2D_X(_HistoryVolumetricClouds0Texture);
+TEXTURE2D_X(_HistoryVolumetricClouds1Texture);
+
+// Output texture
+RWTexture2D<float> _CloudsDepthTextureRW;
+RWTexture2D<float4> _CloudsLightingTextureRW;;
+
+CBUFFER_START(ShaderVariableClouds)
+float4 _TraceScreenSize;
+float4 _VolumeTexture_TexelSize;
+float4x4 _CloudsPixelCoordToViewDirWS;
+CBUFFER_END
+
+float SampleVolume(float3 position)
+{
+    position.x *= _TraceScreenSize.x / _TraceScreenSize.y;
+    return LOAD_TEXTURE3D(_VolumeTexture, position * 64).r;
+}
+
+[numthreads(8, 8, 1)]
+void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID, uint2 groupId : SV_GroupID)
+{
+    // If this is bigger than the trace size, we are done
+    if (any(traceCoord.xy >= uint2(_TraceScreenSize.xy)))
+        return;
+    
+    float2 uv = traceCoord.xy / _TraceScreenSize.xy;
+    float3 rayOrigin = float3(uv, 0);
+    float3 rayDirection = float3(uv * 0.5, 1) / 10;
+
+    float3 lightDir = normalize(float3(1,1,-1)) / 10;
+
+    half stepDensity = 1.0 / 10;
+    half shadowDensity = 1.0 / 10;
+    
+    half currentDensity = 0.0;
+    half transmittance = 1.0;
+    half lightEnergy = 0.0;
+    
+    int currentIndex = 0;
+    while (currentIndex < 10)
+    {
+        float sample = SampleVolume(rayOrigin);
+
+        if (sample > 0.001)
+        {
+            float3 lightRay = rayOrigin;
+            half shadowDist = 0;
+
+            int lightIndex = 0;
+            while (lightIndex < 10)
+            {
+                lightRay += lightDir;
+                half lightSample = SampleVolume(lightRay);
+                
+                half3 shadowBoxTest = floor(abs(lightRay - 0.5) + 0.5);
+                half exitShadowBox = shadowBoxTest.x + shadowBoxTest.y + shadowBoxTest.z;
+
+                if (exitShadowBox >= 1.0)
+                    break;
+
+                lightIndex++;
+            }
+
+            currentDensity = saturate(sample * stepDensity);
+            half shadowTerm = exp(-shadowDist * shadowDensity);
+            half absorbedLight = shadowTerm * currentDensity;
+            lightEnergy += absorbedLight * transmittance;
+            transmittance *= 1.0 - currentDensity;
+        }
+
+        rayOrigin += rayDirection;
+        currentIndex++;
+    }
+
+    float3 light = lerp(float3(0.17, 0.38, 0.52), 0.8, lightEnergy) * (1 - transmittance); 
+    _CloudsLightingTextureRW[traceCoord.xy] = float4(light, 1 - transmittance);
+}

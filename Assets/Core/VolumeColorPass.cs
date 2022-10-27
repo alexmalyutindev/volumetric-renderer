@@ -72,7 +72,7 @@ public class VolumeColorPass : ScriptableRenderPass
             cmd.Clear();
 
             var sortFlags = renderingData.cameraData.defaultOpaqueSortFlags;
-            sortFlags = SortingCriteria.QuantizedFrontToBack | SortingCriteria.RenderQueue;
+            // sortFlags = SortingCriteria.QuantizedFrontToBack | SortingCriteria.RenderQueue;
             var drawSettings = CreateDrawingSettings(m_ShaderTagId, ref renderingData, sortFlags);
             drawSettings.perObjectData = PerObjectData.None;
 
