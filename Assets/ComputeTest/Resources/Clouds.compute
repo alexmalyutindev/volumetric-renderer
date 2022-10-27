@@ -28,32 +28,42 @@ CBUFFER_END
 
 float SampleVolume(float3 position)
 {
-    position.x *= _TraceScreenSize.x / _TraceScreenSize.y;
+    position += float3(0.5, 0.5, -0.5);
     return LOAD_TEXTURE3D(_VolumeTexture, position * 64).r;
 }
 
 [numthreads(8, 8, 1)]
 void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID, uint2 groupId : SV_GroupID)
 {
+    int _RaySteps = 10.0;
+    float _Density = 5.0;
+    float _ShadowDensity = 10.0;
+
     // If this is bigger than the trace size, we are done
     if (any(traceCoord.xy >= uint2(_TraceScreenSize.xy)))
         return;
     
     float2 uv = traceCoord.xy / _TraceScreenSize.xy;
-    float3 rayOrigin = float3(uv, 0);
-    float3 rayDirection = float3(uv * 0.5, 1) / 10;
+    float3 rayOrigin = float3(uv * 2 - 1, 0);
+    float3 rayDirection = float3(uv * 2 - 1, 1);
+    
+    rayOrigin = mul(_CloudsPixelCoordToViewDirWS, float4(rayOrigin, 0)).xyz;
+    rayDirection = mul(_CloudsPixelCoordToViewDirWS, float4(rayDirection, 1)).xyz;
+    rayOrigin += rayDirection;
+    rayDirection /= _RaySteps;
 
-    float3 lightDir = normalize(float3(1,1,-1)) / 10;
 
-    half stepDensity = 1.0 / 10;
-    half shadowDensity = 1.0 / 10;
+    float3 lightDir = normalize(float3(1,1,1)) / _RaySteps;
+
+    half density = _Density / _RaySteps;
+    half shadowDensity = _ShadowDensity / _RaySteps;
     
     half currentDensity = 0.0;
     half transmittance = 1.0;
     half lightEnergy = 0.0;
     
     int currentIndex = 0;
-    while (currentIndex < 10)
+    while (currentIndex < _RaySteps)
     {
         float sample = SampleVolume(rayOrigin);
 
@@ -63,7 +73,7 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
             half shadowDist = 0;
 
             int lightIndex = 0;
-            while (lightIndex < 10)
+            while (lightIndex < _RaySteps)
             {
                 lightRay += lightDir;
                 half lightSample = SampleVolume(lightRay);
@@ -71,13 +81,14 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
                 half3 shadowBoxTest = floor(abs(lightRay - 0.5) + 0.5);
                 half exitShadowBox = shadowBoxTest.x + shadowBoxTest.y + shadowBoxTest.z;
 
+                shadowDist += lightSample;
                 if (exitShadowBox >= 1.0)
                     break;
 
                 lightIndex++;
             }
 
-            currentDensity = saturate(sample * stepDensity);
+            currentDensity = saturate(sample * density);
             half shadowTerm = exp(-shadowDist * shadowDensity);
             half absorbedLight = shadowTerm * currentDensity;
             lightEnergy += absorbedLight * transmittance;
