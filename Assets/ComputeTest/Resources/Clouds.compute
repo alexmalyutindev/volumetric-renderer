@@ -1,5 +1,6 @@
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#include "Assets/Core/BlueNoise.hlsl"
 
 // Render clouds
 #pragma kernel RenderClouds
@@ -10,54 +11,116 @@ TEXTURE2D_X(_VolumetricCloudsSourceDepth);
 TEXTURE2D_X(_MaxZMaskTexture);
 
 TEXTURE3D(_VolumeTexture);
-SAMPLER(sampler_VolumeTeture);
+SAMPLER(sampler_VolumeTexture);
 
 // History buffers
 TEXTURE2D_X(_HistoryVolumetricClouds0Texture);
 TEXTURE2D_X(_HistoryVolumetricClouds1Texture);
 
 // Output texture
+RWTexture2D<float> _DepthBufferRW;
 RWTexture2D<float> _CloudsDepthTextureRW;
 RWTexture2D<float4> _CloudsLightingTextureRW;;
 
 CBUFFER_START(ShaderVariableClouds)
 float4 _TraceScreenSize;
+float4 _FinalScreenSize;
 float4 _VolumeTexture_TexelSize;
 float4x4 _CloudsPixelCoordToViewDirWS;
 CBUFFER_END
 
+///////////
+// Utils //
+///////////
+
+// Function that converts an oblique depth to a non oblique one (for planar reflection probes)
+// float ConvertObliqueDepthToNonOblique(int2 currentCoord, float obliqueDepth)
+// {
+//     // Compute the world position of the tapped pixel
+//     // Note: the view matrix here is not really used, but a valid matrix needs to be passed to this function.
+//     PositionInputs centralPosInput = GetPositionInput(currentCoord, _FinalScreenSize.zw, obliqueDepth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+//
+//     // For some reason, with oblique matrices, when the point is on the background the reconstructed position ends up behind the camera and at the wrong position
+//     float3 rayDirection = normalize(-centralPosInput.positionWS);
+//     rayDirection = obliqueDepth == 0.0 ? -rayDirection : rayDirection;
+//
+//     // Adjust the position
+//     centralPosInput.positionWS = obliqueDepth == 0.0 ? rayDirection * _ProjectionParams.z : centralPosInput.positionWS;
+//
+//     // Re-do the projection, but this time without the oblique part and export it
+//     float4 hClip = mul(_CameraViewProjection_NO, float4(centralPosInput.positionWS, 1.0));
+//
+//     // Divide by the homogenous coordinate
+//     return saturate(hClip.z / hClip.w);
+// }
+
+/////////
+
 float SampleVolume(float3 position)
 {
-    position += float3(0.5, 0.5, -0.5);
-    return LOAD_TEXTURE3D(_VolumeTexture, position * 64).r;
+    position = saturate(position);
+    const half4 sample = SAMPLE_TEXTURE3D_LOD(_VolumeTexture, sampler_VolumeTexture, position, 0);
+    return sample.r;
+
+    // float3 extents = (position * 0.1 > 1) || (position * 0.1 < 0);
+    // extents = dot(extents, extents) == 0;
+
+    const float4 modifier = float4(0.5, -0.5, -0.25, 0);
+    const float modifierSize = abs(dot(modifier, 1));
+    return saturate(dot(sample, modifier) / modifierSize);
+}
+
+// [numthreads(8, 8, 1)]
+// void ConvertObliqueDepth(uint3 currentCoord : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID, uint2 groupId : SV_GroupID)
+// {
+//     // If this is bigger than the trace size, we are done
+//     if (any(currentCoord.xy >= uint2(_FinalScreenSize.xy)))
+//         return;
+//
+//     // Combine it with the current shift to define which half res depth should be used
+//     _DepthBufferRW[currentCoord.xy] = ConvertObliqueDepthToNonOblique(currentCoord.xy, LOAD_TEXTURE2D_X(_DepthTexture, currentCoord.xy).x);
+// }
+
+// TODO
+float3 ComputePositionWS()
+{
+    return 0;
 }
 
 [numthreads(8, 8, 1)]
 void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID, uint2 groupId : SV_GroupID)
 {
-    int _RaySteps = 10.0;
+    int _RaySteps = 20.0;
+    int _ShadowSteps = 10.0;
     float _Density = 5.0;
-    float _ShadowDensity = 10.0;
+    float _ShadowDensity = 5.0;
+    float traceDist = 5.0;
+    float _ShadowThreshold = 0.01;
 
     // If this is bigger than the trace size, we are done
     if (any(traceCoord.xy >= uint2(_TraceScreenSize.xy)))
         return;
+
+    float2 screenUV = traceCoord.xy * _TraceScreenSize.zw;
+    float2 positionCS = traceCoord.xy * _TraceScreenSize.zw * 2.0 - 1.0;
+    float3 rayOrigin = float3(positionCS, 0);
+    float3 rayDirection = float3(positionCS, 1);
     
-    float2 uv = traceCoord.xy / _TraceScreenSize.xy;
-    float3 rayOrigin = float3(uv * 2 - 1, 0);
-    float3 rayDirection = float3(uv * 2 - 1, 1);
-    
-    rayOrigin = mul(_CloudsPixelCoordToViewDirWS, float4(rayOrigin, 0)).xyz;
+    rayOrigin = _WorldSpaceCameraPos;
+
     rayDirection = mul(_CloudsPixelCoordToViewDirWS, float4(rayDirection, 1)).xyz;
-    rayOrigin += rayDirection;
-    rayDirection /= _RaySteps;
+    rayDirection = rayDirection / _RaySteps * traceDist;
 
-
-    float3 lightDir = normalize(float3(1,1,1)) / _RaySteps;
-
-    half density = _Density / _RaySteps;
-    half shadowDensity = _ShadowDensity / _RaySteps;
+    half jitter = SAMPLE_BLUENOISE(screenUV, 0.5);
+    rayOrigin += rayDirection * jitter;
     
+    half density = _Density / _RaySteps * traceDist;
+
+    half shadowStepSize = 1.0 / _ShadowSteps;
+    half shadowDensity = _ShadowDensity * shadowStepSize;
+    float shadowThresh = -log(_ShadowThreshold) / shadowDensity;
+    float3 lightDir = _MainLightPosition.xyz * shadowStepSize;
+
     half currentDensity = 0.0;
     half transmittance = 1.0;
     half lightEnergy = 0.0;
@@ -67,13 +130,14 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
     {
         float sample = SampleVolume(rayOrigin);
 
+        //Sample Light Absorption and Scattering
         if (sample > 0.001)
         {
-            float3 lightRay = rayOrigin;
+            float3 lightRay = rayOrigin; // + lightDir * jitter;
             half shadowDist = 0;
 
             int lightIndex = 0;
-            while (lightIndex < _RaySteps)
+            while (lightIndex < _ShadowSteps)
             {
                 lightRay += lightDir;
                 half lightSample = SampleVolume(lightRay);
@@ -82,7 +146,7 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
                 half exitShadowBox = shadowBoxTest.x + shadowBoxTest.y + shadowBoxTest.z;
 
                 shadowDist += lightSample;
-                if (exitShadowBox >= 1.0)
+                if (shadowDist > shadowThresh || exitShadowBox >= 1.0)
                     break;
 
                 lightIndex++;
@@ -95,10 +159,16 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
             transmittance *= 1.0 - currentDensity;
         }
 
+        if (transmittance < 0.01)
+        {
+            transmittance = 0;
+            break;
+        }
+
         rayOrigin += rayDirection;
         currentIndex++;
     }
 
-    float3 light = lerp(float3(0.17, 0.38, 0.52), 0.8, lightEnergy) * (1 - transmittance); 
+    float3 light = lerp(float3(0.17, 0.38, 0.52), _MainLightColor.rgb, lightEnergy);
     _CloudsLightingTextureRW[traceCoord.xy] = float4(light, 1 - transmittance);
 }
