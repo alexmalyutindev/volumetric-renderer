@@ -5,6 +5,7 @@
 
 TODOs
 ---
+- [ ] Rework density with clipspace volume buffer
 - [x] Fix ray transformation.
 - [ ] Add lower resolution buffer for ray marching
 - [ ] Fix volumes intersection
