@@ -85,6 +85,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Active: 1
   cloudsShader: {fileID: 7200000, guid: 0d98b0a1a8bd43acb3129115003886c0, type: 3}
-  cloudsVolume: {fileID: 11700000, guid: e7b699ab4e0744081a4cb16a6f425635, type: 3}
+  cloudsVolume: {fileID: 11700000, guid: b01c3abd14e744d25afed97c9b8ca279, type: 2}
+  settings:
+    Volume: {fileID: 0}
+    LayerWeights: {x: -0.45, y: -1.98, z: 2.16, w: 0}
+    Density: 1
+    ShadowDensity: 10
   _blitAdd: {fileID: 4800000, guid: 8c5ccaf81a574a6893393b0ad26a55a1, type: 3}
   _blitMat: {fileID: 0}

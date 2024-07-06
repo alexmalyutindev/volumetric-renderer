@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -37,6 +38,7 @@ public class ComputeCloudsFeature : ScriptableRendererFeature
         private RenderTargetIdentifier _volumeIdentifier;
         private readonly Material _blitMat;
         private Params _params;
+        private Settings _settings;
 
         public CustomRenderPass(ComputeShader shader, Texture volume, Material blitMat)
         {
@@ -48,6 +50,12 @@ public class ComputeCloudsFeature : ScriptableRendererFeature
             {
                 Kernel = _shader.FindKernel("RenderClouds")
             };
+            ConfigureInput(ScriptableRenderPassInput.Depth);
+        }
+
+        public void Setup(Settings settings)
+        {
+            _settings = settings;
         }
 
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
@@ -93,6 +101,11 @@ public class ComputeCloudsFeature : ScriptableRendererFeature
                 // Init params
                 InitParams(renderingData, ref _params);
 
+                cmd.SetComputeVectorParam(_shader, $"_{nameof(Settings.LayerWeights)}", _settings.LayerWeights);
+                cmd.SetComputeFloatParam(_shader, $"_{nameof(Settings.Density)}", _settings.Density);
+                cmd.SetComputeFloatParam(_shader, $"_{nameof(Settings.ShadowDensity)}", _settings.ShadowDensity);
+                cmd.SetComputeTextureParam(_shader, 0, "_DepthTexture", renderingData.cameraData.renderer.cameraDepthTarget);
+                
                 cmd.SetComputeMatrixParam(_shader, ShaderIDs.CloudsPixelCoordToViewDirWS, _params.InvViewProjection);
                 cmd.SetComputeTextureParam(_shader, _params.Kernel, ShaderIDs.VolumeTexture, _volumeIdentifier);
                 cmd.SetComputeTextureParam(
@@ -155,10 +168,15 @@ public class ComputeCloudsFeature : ScriptableRendererFeature
     }
 
     public ComputeShader cloudsShader;
+
     public Texture cloudsVolume;
+
+    public Settings settings;
+
     CustomRenderPass m_ScriptablePass;
 
     [SerializeField] [HideInInspector] private Shader _blitAdd = null;
+
     [SerializeField] [HideInInspector] private Material _blitMat = null;
 
 
@@ -180,9 +198,21 @@ public class ComputeCloudsFeature : ScriptableRendererFeature
     }
 
     // Here you can inject one or multiple render passes in the renderer.
+
     // This method is called when setting up the renderer once per-camera.
+
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
+        m_ScriptablePass.Setup(settings);
         renderer.EnqueuePass(m_ScriptablePass);
+    }
+
+    [Serializable]
+    public class Settings
+    {
+        public Texture3D Volume;
+        public Vector4 LayerWeights = Vector4.one;
+        public float Density = 10f;
+        public float ShadowDensity = 10f;
     }
 }

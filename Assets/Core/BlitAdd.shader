@@ -99,9 +99,7 @@ Shader "Hidden/LowKick/BlitAdd"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                float noise = SAMPLE_BLUENOISE(input.uv, 1) - 0.5;
-                noise *= _MainTex_TexelSize.x * 5;
-                half4 col = UpsampleBox(_MainTex, sampler_MainTex, input.uv, _MainTex_TexelSize.xy, 1.66);
+                half4 col = UpsampleBox(_MainTex, sampler_MainTex, input.uv, _MainTex_TexelSize.xy, 1.0);
                 
                 #ifdef _LINEAR_TO_SRGB_CONVERSION
                 col = LinearToSRGB(col);

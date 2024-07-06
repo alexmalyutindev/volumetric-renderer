@@ -6,7 +6,8 @@
 #pragma kernel RenderClouds
 
 // Input textures
-TEXTURE2D_X(_DepthTexture);
+TEXTURE2D_X(_CameraDepthTexture);
+float4 _CameraDepthTexture_TexelSize;
 TEXTURE2D_X(_VolumetricCloudsSourceDepth);
 TEXTURE2D_X(_MaxZMaskTexture);
 
@@ -23,6 +24,9 @@ RWTexture2D<float> _CloudsDepthTextureRW;
 RWTexture2D<float4> _CloudsLightingTextureRW;;
 
 CBUFFER_START(ShaderVariableClouds)
+float _Density;
+float _ShadowDensity;
+float4 _LayerWeights;
 float4 _TraceScreenSize;
 float4 _FinalScreenSize;
 float4 _VolumeTexture_TexelSize;
@@ -58,16 +62,12 @@ CBUFFER_END
 
 float SampleVolume(float3 position)
 {
-    position = saturate(position);
-    const half4 sample = SAMPLE_TEXTURE3D_LOD(_VolumeTexture, sampler_VolumeTexture, position, 0);
-    return sample.r;
+    // position = saturate(position);
+    float dist = length(position);
 
-    // float3 extents = (position * 0.1 > 1) || (position * 0.1 < 0);
-    // extents = dot(extents, extents) == 0;
-
-    const float4 modifier = float4(0.5, -0.5, -0.25, 0);
-    const float modifierSize = abs(dot(modifier, 1));
-    return saturate(dot(sample, modifier) / modifierSize);
+    const half4 sample = SAMPLE_TEXTURE3D_LOD(_VolumeTexture, sampler_VolumeTexture, position * 0.1, 0);
+    float result = saturate(dot(sample.rgb, _LayerWeights.rgb));
+    return result * max(0, 1 - dist * 0.5);
 }
 
 // [numthreads(8, 8, 1)]
@@ -88,13 +88,15 @@ float3 ComputePositionWS()
 }
 
 [numthreads(8, 8, 1)]
-void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID, uint2 groupId : SV_GroupID)
+void RenderClouds(
+    uint3 traceCoord : SV_DispatchThreadID,
+    uint2 groupThreadId : SV_GroupThreadID,
+    uint2 groupId : SV_GroupID
+)
 {
-    int _RaySteps = 20.0;
-    int _ShadowSteps = 10.0;
-    float _Density = 5.0;
-    float _ShadowDensity = 5.0;
-    float traceDist = 5.0;
+    int _RaySteps = 100.0;
+    int _ShadowSteps = 50.0;
+    float traceDist = 50.0;
     float _ShadowThreshold = 0.01;
 
     // If this is bigger than the trace size, we are done
@@ -103,20 +105,22 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
 
     float2 screenUV = traceCoord.xy * _TraceScreenSize.zw;
     float2 positionCS = traceCoord.xy * _TraceScreenSize.zw * 2.0 - 1.0;
-    float3 rayOrigin = float3(positionCS, 0);
-    float3 rayDirection = float3(positionCS, 1);
-    
-    rayOrigin = _WorldSpaceCameraPos;
+    float3 rayOrigin = _WorldSpaceCameraPos;
+    float3 rayDirection = float3(positionCS, 1.0);
+    float stepSize = 0.1;
 
-    rayDirection = mul(_CloudsPixelCoordToViewDirWS, float4(rayDirection, 1)).xyz;
-    rayDirection = rayDirection / _RaySteps * traceDist;
+    float depth = LOAD_TEXTURE2D_X(_CameraDepthTexture, screenUV.xy * _CameraDepthTexture_TexelSize.zw).x;
+    depth = LinearEyeDepth(depth, _ZBufferParams);
+
+    rayDirection = mul(_CloudsPixelCoordToViewDirWS, float4(rayDirection, 1.0)).xyz;
+    rayDirection = rayDirection * stepSize;
 
     half jitter = SAMPLE_BLUENOISE(screenUV, 0.5);
     rayOrigin += rayDirection * jitter;
-    
+
     half density = _Density / _RaySteps * traceDist;
 
-    half shadowStepSize = 1.0 / _ShadowSteps;
+    half shadowStepSize = 0.1;
     half shadowDensity = _ShadowDensity * shadowStepSize;
     float shadowThresh = -log(_ShadowThreshold) / shadowDensity;
     float3 lightDir = _MainLightPosition.xyz * shadowStepSize;
@@ -124,16 +128,17 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
     half currentDensity = 0.0;
     half transmittance = 1.0;
     half lightEnergy = 0.0;
-    
+
+    float tracedDist = jitter;
     int currentIndex = 0;
-    while (currentIndex < _RaySteps)
+    while (currentIndex < _RaySteps && tracedDist < depth)
     {
         float sample = SampleVolume(rayOrigin);
 
         //Sample Light Absorption and Scattering
-        if (sample > 0.001)
+        if (sample > 0.01)
         {
-            float3 lightRay = rayOrigin; // + lightDir * jitter;
+            float3 lightRay = rayOrigin + lightDir * jitter;
             half shadowDist = 0;
 
             int lightIndex = 0;
@@ -141,12 +146,9 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
             {
                 lightRay += lightDir;
                 half lightSample = SampleVolume(lightRay);
-                
-                half3 shadowBoxTest = floor(abs(lightRay - 0.5) + 0.5);
-                half exitShadowBox = shadowBoxTest.x + shadowBoxTest.y + shadowBoxTest.z;
 
                 shadowDist += lightSample;
-                if (shadowDist > shadowThresh || exitShadowBox >= 1.0)
+                if (shadowDist > shadowThresh)
                     break;
 
                 lightIndex++;
@@ -166,6 +168,7 @@ void RenderClouds(uint3 traceCoord : SV_DispatchThreadID, uint2 groupThreadId : 
         }
 
         rayOrigin += rayDirection;
+        tracedDist += stepSize;
         currentIndex++;
     }
 

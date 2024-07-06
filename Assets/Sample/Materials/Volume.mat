@@ -33,7 +33,7 @@ Material:
     m_Floats:
     - _AlphaClip: 0
     - _Cutoff: 0.37
-    - _Density: 2.06
+    - _Density: 10
     - _MaxStepsCount: 10
     - _ShadowDensity: 5
     - _ShadowSteps: 6
